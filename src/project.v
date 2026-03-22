@@ -1,9 +1,112 @@
 /*
- * Copyright (c) 2024 Your Name
+ * Copyright (c) 2026 Can Joshua Lehmann
  * SPDX-License-Identifier: Apache-2.0
+ * Based on the Tiny Tapeout Template
  */
 
 `default_nettype none
+
+module LUT #(
+  parameter N = 2
+) (
+  input clock,
+  input rst_n,
+  input [N - 1 : 0] in,
+  output out,
+  input [2 ** N + 1 - 1 : 0] conf
+);
+
+  wire reg_conf = conf[0];
+  wire [2 ** N - 1 : 0] lut_conf = conf[1 +: 2 ** N];
+
+  wire lut = lut_conf[in];
+
+  reg register;
+
+  always @(posedge clock)
+    if (!rst_n)
+      register <= 0;
+    else
+      register <= lut;
+
+  assign out = reg_conf ? register : lut;
+
+endmodule
+
+module Pool #(
+  parameter LUTS = 4,
+  parameter PORTS_IN = 2,
+  parameter PORTS_OUT = 2,
+  parameter N = 2
+) (
+  input clock,
+  input rst_n,
+  input [PORTS_IN - 1 : 0] ports_in,
+  output [PORTS_OUT - 1 : 0] ports_out,
+  input [(2 ** N + 1 + 2 * $clog2(PORTS_IN + LUTS)) * LUTS +  - 1 : 0] conf
+);
+
+  wire [PORTS_IN + LUTS - 1 : 0] xbar;
+
+  assign xbar[PORTS_IN - 1 : 0] = ports_in;
+
+  localparam LUT_CONF_SIZE = 2 ** N + 1;
+  localparam XBAR_OPERAND_CONF_SIZE = $clog2(PORTS_IN + LUTS);
+  localparam XBAR_CONF_SIZE = 2 * XBAR_OPERAND_CONF_SIZE;
+  localparam STRIDE = LUT_CONF_SIZE + XBAR_CONF_SIZE;
+
+
+  genvar i;
+  genvar j;
+  for (i = 0; i < LUTS; i = i + 1)
+    begin
+      wire [N - 1 : 0] in;
+
+      for (j = 0; j < N; j = j + 1)
+        begin
+          wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[STRIDE * i + XBAR_OPERAND_CONF_SIZE * j +: XBAR_OPERAND_CONF_SIZE];
+          assign in[j] = xbar[operand];
+        end
+
+      LUT #(.N(N)) lut (
+        .clock(clock),
+        .rst_n(rst_n),
+        .in(in),
+        .out(xbar[PORTS_IN + i]),
+        .conf(conf[STRIDE * i +: LUT_CONF_SIZE])
+      );
+    end
+  
+  for (i = 0; i < PORTS_OUT; i = i + 1)
+    begin
+      wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[LUTS * STRIDE + XBAR_OPERAND_CONF_SIZE * i +: XBAR_OPERAND_CONF_SIZE];
+      assign ports_out[i] = xbar[operand];
+    end
+
+endmodule
+
+module ConfMemory #(
+  parameter SIZE = 8
+) (
+  input clock,
+  input rst_n,
+  input prog_data,
+  input prog_enable,
+  output [SIZE - 1 : 0] conf
+);
+
+  reg [SIZE - 1 : 0] mem;
+
+  always @(posedge clock)
+    if (!rst_n)
+      mem <= 0;
+    else
+      if (prog_enable)
+        mem <= {mem[SIZE - 2 : 0], prog_data};
+
+  assign conf = mem;
+
+endmodule
 
 module tt_um_fpga_can_lehmann (
     input  wire [7:0] ui_in,    // Dedicated inputs
@@ -17,9 +120,42 @@ module tt_um_fpga_can_lehmann (
 );
 
   // All output pins must be assigned. If not used, assign to 0.
-  assign uo_out  = ui_in + uio_in;  // Example: ou_out is the sum of ui_in and uio_in
   assign uio_out = 0;
   assign uio_oe  = 0;
+
+  localparam IN_PORTS_PER_POOL = 8;
+  localparam OUT_PORTS_PER_POOL = 8;
+  localparam LUTS_PER_POOL = 4;
+  localparam N = 2;
+  localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
+  localparam CONF_SIZE =
+    (2 ** N + 1 + 2 * $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL)) * LUTS_PER_POOL +
+    XBAR_OPERAND_CONF_SIZE * OUT_PORTS_PER_POOL;
+
+  wire [CONF_SIZE - 1 : 0] conf;
+
+  ConfMemory #(
+    .SIZE(CONF_SIZE)
+  ) conf_memory (
+    .clock(clk),
+    .rst_n(rst_n),
+    .prog_data(uio_in[0]),
+    .prog_enable(uio_in[1]),
+    .conf(conf)
+  );
+
+  Pool #(
+    .PORTS_IN(IN_PORTS_PER_POOL),
+    .PORTS_OUT(OUT_PORTS_PER_POOL),
+    .LUTS(LUTS_PER_POOL),
+    .N(N)
+  ) pool (
+    .clock(clk),
+    .rst_n(rst_n),
+    .ports_in(ui_in),
+    .ports_out(uo_out),
+    .conf(conf)
+  );
 
   // List all unused inputs to prevent warnings
   wire _unused = &{ena, clk, rst_n, 1'b0};
