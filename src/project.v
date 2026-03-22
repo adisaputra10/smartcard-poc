@@ -43,12 +43,18 @@ module Pool #(
   input rst_n,
   input [PORTS_IN - 1 : 0] ports_in,
   output [PORTS_OUT - 1 : 0] ports_out,
-  input [(2 ** N + 1 + 2 * $clog2(PORTS_IN + LUTS)) * LUTS +  - 1 : 0] conf
+  input [(2 ** N + 1 + 2 * $clog2(PORTS_IN + LUTS)) * LUTS + $clog2(PORTS_IN + LUTS) * PORTS_OUT - 1 : 0] conf
 );
 
-  wire [PORTS_IN + LUTS - 1 : 0] xbar;
+  genvar i;
+  genvar j;
+  
+  /* verilator lint_off UNOPTFLAT */
+  wire xbar [PORTS_IN + LUTS];
+  /* verilator lint_on UNOPTFLAT */
 
-  assign xbar[PORTS_IN - 1 : 0] = ports_in;
+  for (i = 0; i < PORTS_IN; i = i + 1)
+    assign xbar[i] = ports_in[i];
 
   localparam LUT_CONF_SIZE = 2 ** N + 1;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(PORTS_IN + LUTS);
@@ -56,8 +62,6 @@ module Pool #(
   localparam STRIDE = LUT_CONF_SIZE + XBAR_CONF_SIZE;
 
 
-  genvar i;
-  genvar j;
   for (i = 0; i < LUTS; i = i + 1)
     begin
       wire [N - 1 : 0] in;
