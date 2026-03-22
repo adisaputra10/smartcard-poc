@@ -134,7 +134,7 @@ module tt_um_fpga_can_lehmann (
   assign uio_oe  = 0;
 
   localparam IN_PORTS_PER_POOL = 8;
-  localparam OUT_PORTS_PER_POOL = 8;
+  localparam OUT_PORTS_PER_POOL = 4;
   localparam LUTS_PER_POOL = 8;
   localparam N = 2;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
@@ -163,10 +163,12 @@ module tt_um_fpga_can_lehmann (
     .clock(clk),
     .rst_n(rst_n),
     .ports_in(ui_in),
-    .ports_out(uo_out),
+    .ports_out(uo_out[3:0]),
     .virtual_reset(uio_in[2]),
     .conf(conf)
   );
+
+  assign uo_out[7:4] = 0;
 
   // List all unused inputs to prevent warnings
   wire _unused = &{ena, clk, rst_n, ui_in[7:3], 1'b0};

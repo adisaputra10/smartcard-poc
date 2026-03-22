@@ -37,10 +37,10 @@ pinout:
   uo[1]: "out[1]"
   uo[2]: "out[2]"
   uo[3]: "out[3]"
-  uo[4]: "out[4]"
-  uo[5]: "out[5]"
-  uo[6]: "out[6]"
-  uo[7]: "out[7]"
+  uo[4]: ""
+  uo[5]: ""
+  uo[6]: ""
+  uo[7]: ""
 
   # Bidirectional pins
   uio[0]: "Program Data"
