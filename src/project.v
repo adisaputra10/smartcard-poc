@@ -139,7 +139,7 @@ module tt_um_fpga_can_lehmann (
 
   localparam IN_PORTS_PER_POOL = 8;
   localparam OUT_PORTS_PER_POOL = 4;
-  localparam LUTS_PER_POOL = 9;
+  localparam LUTS_PER_POOL = 8;
   localparam N = 2;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
   localparam CONF_SIZE =
