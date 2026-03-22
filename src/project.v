@@ -43,7 +43,7 @@ module Pool #(
   input rst_n,
   input [PORTS_IN - 1 : 0] ports_in,
   output [PORTS_OUT - 1 : 0] ports_out,
-  input [(2 ** N + 1 + 2 * $clog2(PORTS_IN + LUTS)) * LUTS + $clog2(PORTS_IN + LUTS) * PORTS_OUT - 1 : 0] conf
+  input [(2 ** N + 1 + N * $clog2(PORTS_IN + LUTS)) * LUTS + $clog2(PORTS_IN + LUTS) * PORTS_OUT - 1 : 0] conf
 );
 
   genvar i;
@@ -129,11 +129,11 @@ module tt_um_fpga_can_lehmann (
 
   localparam IN_PORTS_PER_POOL = 8;
   localparam OUT_PORTS_PER_POOL = 8;
-  localparam LUTS_PER_POOL = 4;
+  localparam LUTS_PER_POOL = 16;
   localparam N = 2;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
   localparam CONF_SIZE =
-    (2 ** N + 1 + 2 * $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL)) * LUTS_PER_POOL +
+    (2 ** N + 1 + N * $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL)) * LUTS_PER_POOL +
     XBAR_OPERAND_CONF_SIZE * OUT_PORTS_PER_POOL;
 
   wire [CONF_SIZE - 1 : 0] conf;
