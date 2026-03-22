@@ -9,7 +9,9 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Test
+This project implements a tiny FPGA.
+
+![Pool](pool.svg)
 
 ## How to test
 
