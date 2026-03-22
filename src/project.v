@@ -19,7 +19,7 @@ module LUT #(
   wire reg_conf = conf[0];
   wire [2 ** N - 1 : 0] lut_conf = conf[1 +: 2 ** N];
 
-  wire lut = lut_conf[in];
+  wire lut_out = lut_conf[in];
 
   reg register;
 
@@ -27,9 +27,9 @@ module LUT #(
     if (!rst_n)
       register <= 0;
     else
-      register <= lut;
+      register <= lut_out;
 
-  assign out = reg_conf ? register : lut;
+  assign out = reg_conf ? register : lut_out;
 
 endmodule
 
@@ -129,7 +129,7 @@ module tt_um_fpga_can_lehmann (
 
   localparam IN_PORTS_PER_POOL = 8;
   localparam OUT_PORTS_PER_POOL = 8;
-  localparam LUTS_PER_POOL = 16;
+  localparam LUTS_PER_POOL = 8;
   localparam N = 2;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
   localparam CONF_SIZE =
@@ -162,6 +162,6 @@ module tt_um_fpga_can_lehmann (
   );
 
   // List all unused inputs to prevent warnings
-  wire _unused = &{ena, clk, rst_n, 1'b0};
+  wire _unused = &{ena, clk, rst_n, ui_in[7:2], 1'b0};
 
 endmodule
