@@ -17,9 +17,12 @@ Because of the small size, I decided not to do any routing fabric besides the cr
 
 ## How to test
 
-1. Load in a bitstream using the `Program Data` and `Program Enable` pins. The configuration is stored in a shift register, so you can load in the configuration one bit at a time.
-2. Enable `Virtual Reset` to reset the LUT registers.
-3. Disable `Virtual Reset` and observe your design in action!
+**Important:** Tie `Virtual Reset` high before powering on the chip.
+
+1. Tie the `Virtual Reset` pin high to ensure that you don't accidentally get a combinatorial loop on startup.
+2. Power on the chip.
+3. Load in a bitstream using the `Program Data` and `Program Enable` pins. The configuration is stored in a shift register, so you can load in the configuration one bit at a time.
+4. Disable `Virtual Reset` and observe your design in action!
 
 Some of examples of what might be possible:
 

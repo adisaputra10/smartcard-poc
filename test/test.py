@@ -37,11 +37,6 @@ class Conf:
     luts: list[LUT]
     outputs: list[int]
 
-@cocotb.test()
-async def test_toggle(dut):
-    pass
-
-"""
 def to_bitstream(conf: Conf) -> list[bool]:
     while len(conf.luts) < LUTS_PER_POOL:
         conf.luts.append(LUT.default())
@@ -170,4 +165,3 @@ async def test_counter(dut):
         await ReadOnly()
         assert dut.uo_out.value == i % 16
         await ClockCycles(dut.clk, 1)
-"""
