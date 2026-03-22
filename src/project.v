@@ -33,7 +33,9 @@ module LUT #(
       else
         register <= lut_out;
 
-  assign out = reg_conf ? register : lut_out;
+  assign out = virtual_reset ? 0
+             : reg_conf ? register
+             : lut_out;
 
 endmodule
 
@@ -59,7 +61,9 @@ module Pool #(
   /* verilator lint_on UNOPTFLAT */
 
   for (i = 0; i < PORTS_IN; i = i + 1)
-    assign xbar[i] = ports_in[i];
+    begin : xbar_inputs
+      assign xbar[i] = ports_in[i];
+    end
 
   localparam LUT_CONF_SIZE = 2 ** N + 1;
   localparam XBAR_OPERAND_CONF_SIZE = $clog2(PORTS_IN + LUTS);
@@ -68,11 +72,11 @@ module Pool #(
 
 
   for (i = 0; i < LUTS; i = i + 1)
-    begin
+    begin : luts
       wire [N - 1 : 0] in;
 
       for (j = 0; j < N; j = j + 1)
-        begin
+        begin : lut_inputs
           wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[STRIDE * i + LUT_CONF_SIZE + XBAR_OPERAND_CONF_SIZE * j +: XBAR_OPERAND_CONF_SIZE];
           assign in[j] = xbar[operand];
         end
@@ -88,7 +92,7 @@ module Pool #(
     end
   
   for (i = 0; i < PORTS_OUT; i = i + 1)
-    begin
+    begin : outputs
       wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[LUTS * STRIDE + XBAR_OPERAND_CONF_SIZE * i +: XBAR_OPERAND_CONF_SIZE];
       assign ports_out[i] = xbar[operand];
     end
@@ -164,7 +168,7 @@ module tt_um_fpga_can_lehmann (
     .rst_n(rst_n),
     .ports_in(ui_in),
     .ports_out(uo_out[3:0]),
-    .virtual_reset(uio_in[2]),
+    .virtual_reset(uio_in[2] | uio_in[1]),
     .conf(conf)
   );
 
