@@ -153,8 +153,8 @@ module tt_um_fpga_can_lehmann (
   ) conf_memory (
     .clock(clk),
     .rst_n(rst_n),
-    .prog_data(uio_in[0]),
-    .prog_enable(uio_in[1]),
+    .prog_data(ui_in[0]),
+    .prog_enable(ui_in[1]),
     .conf(conf)
   );
 
@@ -166,9 +166,9 @@ module tt_um_fpga_can_lehmann (
   ) pool (
     .clock(clk),
     .rst_n(rst_n),
-    .ports_in(ui_in),
+    .ports_in(uio_in),
     .ports_out(uo_out[3:0]),
-    .virtual_reset(uio_in[2] | uio_in[1]),
+    .virtual_reset(ui_in[2] | ui_in[1]),
     .conf(conf)
   );
 

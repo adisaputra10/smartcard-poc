@@ -68,21 +68,21 @@ async def load_conf(dut, conf: Conf):
     bitstream = to_bitstream(conf)
 
     for bit in reversed(bitstream):
-        dut.uio_in.value = 2 | int(bit)
+        dut.ui_in.value = 2 | int(bit)
         await ClockCycles(dut.clk, 1)
     
-    dut.uio_in.value = 0
+    dut.ui_in.value = 0
     await ClockCycles(dut.clk, 10)
 
-    dut.uio_in.value = 4
+    dut.ui_in.value = 4
     await ClockCycles(dut.clk, 1)
     
-    dut.uio_in.value = 0
+    dut.ui_in.value = 0
 
 async def reset(dut):
     dut.ena.value = 1
     dut.ui_in.value = 0
-    dut.uio_in.value = 0
+    dut.ui_in.value = 0
 
     dut.rst_n.value = 0
     await ClockCycles(dut.clk, 10)
