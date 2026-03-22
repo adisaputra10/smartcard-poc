@@ -73,7 +73,7 @@ module Pool #(
 
       for (j = 0; j < N; j = j + 1)
         begin
-          wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[STRIDE * i + XBAR_OPERAND_CONF_SIZE * j +: XBAR_OPERAND_CONF_SIZE];
+          wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[STRIDE * i + LUT_CONF_SIZE + XBAR_OPERAND_CONF_SIZE * j +: XBAR_OPERAND_CONF_SIZE];
           assign in[j] = xbar[operand];
         end
 
