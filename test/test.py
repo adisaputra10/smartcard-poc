@@ -14,6 +14,15 @@ LUTS_PER_POOL = 8
 
 XBAR_OPERAND_CONF_SIZE = math.ceil(math.log2(IN_PORTS_PER_POOL + LUTS_PER_POOL))
 
+# a b | out
+# 0 0 | 0
+# 0 1 | 1
+# 1 0 | 1
+# 1 1 | 0
+lut_toggle1_if0 = [False, True, True, False]
+lut_and = [False, False, False, True]
+lut_toggle1 = [True, True, False, False]
+
 @dataclass
 class LUT:
     lut: list[bool]
@@ -57,7 +66,6 @@ def to_bitstream(conf: Conf) -> list[bool]:
 
 async def load_conf(dut, conf: Conf):
     bitstream = to_bitstream(conf)
-    print(bitstream)
 
     for bit in reversed(bitstream):
         dut.uio_in.value = 2 | int(bit)
@@ -89,7 +97,7 @@ async def test_toggle(dut):
     await load_conf(dut, Conf(
         luts=[
             LUT(
-                lut=[True, True, False, False],
+                lut=lut_toggle1,
                 inputs=[IN_PORTS_PER_POOL + 0, IN_PORTS_PER_POOL + 0],
                 register=True
             )
@@ -105,8 +113,55 @@ async def test_toggle(dut):
         assert dut.uo_out.value[0] == 1
         await ClockCycles(dut.clk, 1)
 
+@cocotb.test()
+async def test_counter(dut):
+    clock = Clock(dut.clk, 10, unit="us")
+    cocotb.start_soon(clock.start())
 
+    await reset(dut)
+    await load_conf(dut, Conf(
+        luts=[
+            LUT(
+                lut=lut_toggle1,
+                inputs=[IN_PORTS_PER_POOL + 0, IN_PORTS_PER_POOL + 0],
+                register=True
+            ),
+            LUT(
+                lut=lut_toggle1_if0,
+                inputs=[IN_PORTS_PER_POOL + 0, IN_PORTS_PER_POOL + 1],
+                register=True
+            ),
+            LUT(
+                lut=lut_toggle1_if0,
+                inputs=[IN_PORTS_PER_POOL + 4, IN_PORTS_PER_POOL + 2],
+                register=True
+            ),
+            LUT(
+                lut=lut_toggle1_if0,
+                inputs=[IN_PORTS_PER_POOL + 5, IN_PORTS_PER_POOL + 3],
+                register=True
+            ),
+            # Carry logic
+            LUT(
+                lut=lut_and,
+                inputs=[IN_PORTS_PER_POOL + 0, IN_PORTS_PER_POOL + 1],
+                register=False
+            ),
+            LUT(
+                lut=lut_and,
+                inputs=[IN_PORTS_PER_POOL + 4, IN_PORTS_PER_POOL + 2],
+                register=False
+            )
+        ],
+        outputs=[
+            IN_PORTS_PER_POOL + 0,
+            IN_PORTS_PER_POOL + 1,
+            IN_PORTS_PER_POOL + 2,
+            IN_PORTS_PER_POOL + 3,
+        ]
+    ))
 
-
-
-
+    for i in range(32):
+        await ReadOnly()
+        assert dut.uo_out.value == i % 16
+        await ClockCycles(dut.clk, 1)
