@@ -15,7 +15,8 @@ This project implements a tiny FPGA.
 
 ## How to test
 
-Test
+Load in a bitstream using the `Program Data` and `Program Enable` pins.
+Then toggle `Virtual Reset` to reset the LUT registers.
 
 ## External hardware
 

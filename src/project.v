@@ -13,6 +13,7 @@ module LUT #(
   input rst_n,
   input [N - 1 : 0] in,
   output out,
+  input virtual_reset,
   input [2 ** N + 1 - 1 : 0] conf
 );
 
@@ -27,7 +28,10 @@ module LUT #(
     if (!rst_n)
       register <= 0;
     else
-      register <= lut_out;
+      if (virtual_reset)
+        register <= 0;
+      else
+        register <= lut_out;
 
   assign out = reg_conf ? register : lut_out;
 
@@ -43,6 +47,7 @@ module Pool #(
   input rst_n,
   input [PORTS_IN - 1 : 0] ports_in,
   output [PORTS_OUT - 1 : 0] ports_out,
+  input virtual_reset,
   input [(2 ** N + 1 + N * $clog2(PORTS_IN + LUTS)) * LUTS + $clog2(PORTS_IN + LUTS) * PORTS_OUT - 1 : 0] conf
 );
 
@@ -77,6 +82,7 @@ module Pool #(
         .rst_n(rst_n),
         .in(in),
         .out(xbar[PORTS_IN + i]),
+        .virtual_reset(virtual_reset),
         .conf(conf[STRIDE * i +: LUT_CONF_SIZE])
       );
     end
@@ -158,10 +164,11 @@ module tt_um_fpga_can_lehmann (
     .rst_n(rst_n),
     .ports_in(ui_in),
     .ports_out(uo_out),
+    .virtual_reset(uio_in[2]),
     .conf(conf)
   );
 
   // List all unused inputs to prevent warnings
-  wire _unused = &{ena, clk, rst_n, ui_in[7:2], 1'b0};
+  wire _unused = &{ena, clk, rst_n, ui_in[7:3], 1'b0};
 
 endmodule
