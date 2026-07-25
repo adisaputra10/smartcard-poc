@@ -309,3 +309,70 @@ module smartcard_interface (
   end
 
 endmodule
+
+
+// ============================================
+// TinyTapeout Wrapper Module
+// Wraps smartcard_interface with TT-compatible interface
+// ============================================
+module tt_um_fpga_can_lehmann (
+    input  wire [7:0] ui_in,      // Dedicated inputs
+    output wire [7:0] uo_out,     // Dedicated outputs
+    input  wire [7:0] uio_in,     // IOs: Input path
+    output wire [7:0] uio_out,    // IOs: Output path
+    output wire [7:0] uio_oe,     // IOs: Enable path
+    input  wire       ena,        // Enable
+    input  wire       clk,        // Clock
+    input  wire       rst_n       // Active low reset
+);
+
+    // Map TT inputs to smartcard_interface
+    wire card_present = ui_in[0];
+    wire rx_data      = ui_in[1];
+    
+    // Smartcard interface outputs
+    wire [7:0]  rx_byte;
+    wire        rx_valid;
+    wire        tx_ready;
+    wire        tx_out;
+    wire [15:0] crc_out;
+    wire        error_flag;
+    wire [7:0]  mem_rdata;
+    wire        mem_ready;
+    
+    // Instantiate smartcard_interface
+    smartcard_interface u_smartcard (
+        .clk         (clk),
+        .reset       (~rst_n),        // Active high reset
+        .card_present(card_present),
+        .rx_data     (rx_data),
+        .tx_byte     (8'h00),         // Tie off for now
+        .tx_start    (1'b0),
+        .mem_addr    (8'h00),
+        .mem_wdata   (8'h00),
+        .mem_write   (1'b0),
+        .mem_read    (1'b0),
+        .rx_byte     (rx_byte),
+        .rx_valid    (rx_valid),
+        .tx_ready    (tx_ready),
+        .tx_out      (tx_out),
+        .crc_out     (crc_out),
+        .error_flag  (error_flag),
+        .mem_rdata   (mem_rdata),
+        .mem_ready   (mem_ready)
+    );
+    
+    // Map outputs to TT interface
+    assign uo_out[0] = rx_valid;
+    assign uo_out[1] = tx_ready;
+    assign uo_out[2] = tx_out;
+    assign uo_out[3] = error_flag;
+    assign uo_out[4] = mem_ready;
+    assign uo_out[5] = crc_out[0];
+    assign uo_out[6] = crc_out[8];
+    assign uo_out[7] = 1'b0;
+    
+    assign uio_out = rx_byte;
+    assign uio_oe  = 8'hFF;  // All outputs
+
+endmodule
