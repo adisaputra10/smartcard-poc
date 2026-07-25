@@ -78,10 +78,8 @@ module smartcard_interface (
   always @(*) begin
     if (mem_addr < 8'hC0)  // 0x00 - 0xBF: EEPROM (192 bytes)
       mem_select = 2'b00;
-    else if (mem_addr < 8'h100)  // 0xC0 - 0xFF: RAM (64 bytes)
+    else  // 0xC0 - 0xFF: RAM (64 bytes)
       mem_select = 2'b01;
-    else
-      mem_select = 2'b10;  // Reserved
   end
   
   // ============================================
@@ -121,7 +119,7 @@ module smartcard_interface (
   
   // RAM read logic
   always @(*) begin
-    if (mem_addr >= 8'hC0 && mem_addr < 8'h100)
+    if (mem_addr >= 8'hC0)
       ram_rdata = ram_buffer[mem_addr - 8'hC0];
     else
       ram_rdata = 8'hFF;
@@ -152,7 +150,7 @@ module smartcard_interface (
         mem_ready <= 1'b1;
       end
       // RAM write
-      else if (mem_write && mem_addr >= 8'hC0 && mem_addr < 8'h100) begin
+      else if (mem_write && mem_addr >= 8'hC0) begin
         ram_buffer[mem_addr - 8'hC0] <= mem_wdata;
         mem_ready <= 1'b1;
       end
