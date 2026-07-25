@@ -1,180 +1,311 @@
-/*
- * Copyright (c) 2026 Can Joshua Lehmann
- * SPDX-License-Identifier: Apache-2.0
- * Based on the Tiny Tapeout Template
- */
+// ============================================
+// ISO 7816 Smart Card Interface Controller
+// with EEPROM Storage and RAM Buffer
+// ============================================
 
-`default_nettype none
-
-module LUT #(
-  parameter N = 2
-) (
-  input clock,
-  input rst_n,
-  input [N - 1 : 0] in,
-  output out,
-  input virtual_reset,
-  input [2 ** N + 1 - 1 : 0] conf
+module smartcard_interface (
+  input  wire        clk,          // 50 MHz clock
+  input  wire        reset,        // Active high reset
+  input  wire        card_present, // Card detection signal
+  input  wire        rx_data,      // Serial data from card
+  input  wire [7:0]  tx_byte,      // Data to send to card
+  input  wire        tx_start,     // Start transmission
+  input  wire [7:0]  mem_addr,     // Memory address
+  input  wire [7:0]  mem_wdata,    // Memory write data
+  input  wire        mem_write,    // Memory write enable
+  input  wire        mem_read,     // Memory read enable
+  output reg  [7:0]  rx_byte,      // Received data
+  output reg         rx_valid,     // Data received
+  output reg         tx_ready,     // Ready to send
+  output reg         tx_out,       // Serial data to card
+  output reg  [15:0] crc_out,      // CRC-16 output
+  output reg         error_flag,   // Protocol error
+  output reg  [7:0]  mem_rdata,    // Memory read data
+  output reg         mem_ready     // Memory operation complete
 );
 
-  wire reg_conf = conf[0];
-  wire [2 ** N - 1 : 0] lut_conf = conf[1 +: 2 ** N];
-
-  wire lut_out = lut_conf[in];
-
-  reg register;
-
-  always @(posedge clock)
-    if (!rst_n)
-      register <= 0;
-    else
-      if (virtual_reset)
-        register <= 0;
-      else
-        register <= lut_out;
-
-  assign out = virtual_reset ? 0
-             : reg_conf ? register
-             : lut_out;
-
-endmodule
-
-module Pool #(
-  parameter LUTS = 4,
-  parameter PORTS_IN = 2,
-  parameter PORTS_OUT = 2,
-  parameter N = 2
-) (
-  input clock,
-  input rst_n,
-  input [PORTS_IN - 1 : 0] ports_in,
-  output [PORTS_OUT - 1 : 0] ports_out,
-  input virtual_reset,
-  input [(2 ** N + 1 + N * $clog2(PORTS_IN + LUTS)) * LUTS + $clog2(PORTS_IN + LUTS) * PORTS_OUT - 1 : 0] conf
-);
-
-  genvar i;
-  genvar j;
+  // Memory size parameters
+  localparam EEPROM_SIZE = 256;  // 256 bytes EEPROM
+  localparam RAM_SIZE = 64;      // 64 bytes RAM buffer
   
-  /* verilator lint_off UNOPTFLAT */
-  wire xbar [PORTS_IN + LUTS];
-  /* verilator lint_on UNOPTFLAT */
+  // UART parameters (9600 baud at 50 MHz)
+  localparam BAUD_COUNT = 5208;  // 50MHz / 9600
+  
+  // State machine states
+  localparam IDLE       = 4'd0;
+  localparam TX_START_BIT = 4'd1;
+  localparam TX_DATA     = 4'd2;
+  localparam TX_STOP     = 4'd3;
+  localparam RX_START    = 4'd4;
+  localparam RX_DATA     = 4'd5;
+  localparam RX_STOP     = 4'd6;
+  localparam CRC_CALC    = 4'd7;
+  localparam MEM_READ_ST = 4'd8;
+  localparam MEM_WRITE_ST = 4'd9;
 
-  for (i = 0; i < PORTS_IN; i = i + 1)
-    begin : xbar_inputs
-      assign xbar[i] = ports_in[i];
+  // Internal registers
+  reg [3:0]  state;
+  reg [12:0] baud_counter;
+  reg [3:0]  bit_index;
+  reg [7:0]  tx_shift;
+  reg [7:0]  rx_shift;
+  reg [15:0] crc_reg;
+  reg        rx_sync1, rx_sync2;
+
+  // ============================================
+  // EEPROM Memory Array (256 bytes)
+  // Stores persistent card data (PIN, balance, etc.)
+  // ============================================
+  reg [7:0] eeprom_mem [0:EEPROM_SIZE-1];
+  
+  // ============================================
+  // RAM Buffer (64 bytes)
+  // Temporary storage for data processing
+  // ============================================
+  reg [7:0] ram_buffer [0:RAM_SIZE-1];
+  
+  // ============================================
+  // Memory Controller
+  // Handles read/write operations to EEPROM and RAM
+  // ============================================
+  reg [7:0] mem_addr_reg;
+  reg [7:0] mem_wdata_reg;
+  reg       mem_write_reg;
+  reg       mem_read_reg;
+  reg [1:0] mem_select;  // 00=EEPROM, 01=RAM, 10=Reserved, 11=Reserved
+  
+  // Address decoder - determine which memory to access
+  always @(*) begin
+    if (mem_addr < 8'hC0)  // 0x00 - 0xBF: EEPROM (192 bytes)
+      mem_select = 2'b00;
+    else if (mem_addr < 8'h100)  // 0xC0 - 0xFF: RAM (64 bytes)
+      mem_select = 2'b01;
+    else
+      mem_select = 2'b10;  // Reserved
+  end
+  
+  // ============================================
+  // Register File (8 x 8-bit registers)
+  // Fast access temporary storage
+  // ============================================
+  reg [7:0] reg_file [0:7];
+  
+  // Register access control
+  reg [2:0] reg_addr;
+  reg [7:0] reg_wdata;
+  reg       reg_write;
+
+  // ============================================
+  // Data Bus Multiplexer
+  // Selects data source for memory operations
+  // ============================================
+  reg [7:0] data_bus;
+  reg [7:0] eeprom_rdata;
+  reg [7:0] ram_rdata;
+  
+  always @(*) begin
+    case (mem_select)
+      2'b00: data_bus = eeprom_rdata;
+      2'b01: data_bus = ram_rdata;
+      default: data_bus = 8'hFF;
+    endcase
+  end
+
+  // EEPROM read logic
+  always @(*) begin
+    if (mem_addr < 8'hC0)
+      eeprom_rdata = eeprom_mem[mem_addr];
+    else
+      eeprom_rdata = 8'hFF;
+  end
+  
+  // RAM read logic
+  always @(*) begin
+    if (mem_addr >= 8'hC0 && mem_addr < 8'h100)
+      ram_rdata = ram_buffer[mem_addr - 8'hC0];
+    else
+      ram_rdata = 8'hFF;
+  end
+
+  // Synchronize RX input
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      rx_sync1 <= 1'b1;
+      rx_sync2 <= 1'b1;
+    end else begin
+      rx_sync1 <= rx_data;
+      rx_sync2 <= rx_sync1;
     end
+  end
 
-  localparam LUT_CONF_SIZE = 2 ** N + 1;
-  localparam XBAR_OPERAND_CONF_SIZE = $clog2(PORTS_IN + LUTS);
-  localparam XBAR_CONF_SIZE = 2 * XBAR_OPERAND_CONF_SIZE;
-  localparam STRIDE = LUT_CONF_SIZE + XBAR_CONF_SIZE;
+  // Memory write operations
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      mem_ready <= 1'b0;
+      mem_rdata <= 8'h00;
+    end else begin
+      mem_ready <= 1'b0;
+      
+      // EEPROM write
+      if (mem_write && mem_addr < 8'hC0) begin
+        eeprom_mem[mem_addr] <= mem_wdata;
+        mem_ready <= 1'b1;
+      end
+      // RAM write
+      else if (mem_write && mem_addr >= 8'hC0 && mem_addr < 8'h100) begin
+        ram_buffer[mem_addr - 8'hC0] <= mem_wdata;
+        mem_ready <= 1'b1;
+      end
+      // Memory read
+      else if (mem_read) begin
+        mem_rdata <= data_bus;
+        mem_ready <= 1'b1;
+      end
+    end
+  end
+  
+  // Register file write operations
+  integer i;
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      for (i = 0; i < 8; i = i + 1)
+        reg_file[i] <= 8'h00;
+    end else if (reg_write) begin
+      reg_file[reg_addr] <= reg_wdata;
+    end
+  end
 
-
-  for (i = 0; i < LUTS; i = i + 1)
-    begin : luts
-      wire [N - 1 : 0] in;
-
-      for (j = 0; j < N; j = j + 1)
-        begin : lut_inputs
-          wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[STRIDE * i + LUT_CONF_SIZE + XBAR_OPERAND_CONF_SIZE * j +: XBAR_OPERAND_CONF_SIZE];
-          assign in[j] = xbar[operand];
+  // Main state machine
+  always @(posedge clk or posedge reset) begin
+    if (reset) begin
+      state         <= IDLE;
+      baud_counter  <= 0;
+      bit_index     <= 0;
+      tx_out        <= 1'b1;
+      tx_ready      <= 1'b1;
+      rx_valid      <= 1'b0;
+      error_flag    <= 1'b0;
+      crc_reg       <= 16'hFFFF;
+    end else if (!card_present) begin
+      state <= IDLE;
+      tx_out <= 1'b1;
+    end else begin
+      case (state)
+        IDLE: begin
+          tx_ready <= 1'b1;
+          rx_valid <= 1'b0;
+          
+          // Check for transmission request
+          if (tx_start && tx_ready) begin
+            tx_shift     <= tx_byte;
+            tx_ready     <= 1'b0;
+            baud_counter <= 0;
+            state        <= TX_START_BIT;
+          end
+          // Check for start bit on RX
+          else if (!rx_sync2) begin
+            baud_counter <= 0;
+            bit_index    <= 0;
+            state        <= RX_START;
+          end
         end
 
-      LUT #(.N(N)) lut (
-        .clock(clock),
-        .rst_n(rst_n),
-        .in(in),
-        .out(xbar[PORTS_IN + i]),
-        .virtual_reset(virtual_reset),
-        .conf(conf[STRIDE * i +: LUT_CONF_SIZE])
-      );
+        TX_START_BIT: begin
+          tx_out <= 1'b0;  // Start bit
+          if (baud_counter == BAUD_COUNT - 1) begin
+            baud_counter <= 0;
+            bit_index    <= 0;
+            state        <= TX_DATA;
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        TX_DATA: begin
+          tx_out <= tx_shift[0];  // LSB first
+          if (baud_counter == BAUD_COUNT - 1) begin
+            baud_counter <= 0;
+            tx_shift     <= {1'b0, tx_shift[7:1]};
+            if (bit_index == 7) begin
+              state <= TX_STOP;
+            end else begin
+              bit_index <= bit_index + 1;
+            end
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        TX_STOP: begin
+          tx_out <= 1'b1;  // Stop bit
+          if (baud_counter == BAUD_COUNT - 1) begin
+            baud_counter <= 0;
+            state        <= CRC_CALC;
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        RX_START: begin
+          // Sample at middle of start bit
+          if (baud_counter == (BAUD_COUNT / 2) - 1) begin
+            if (!rx_sync2) begin  // Valid start bit
+              baud_counter <= 0;
+              bit_index    <= 0;
+              state        <= RX_DATA;
+            end else begin  // False start
+              state <= IDLE;
+            end
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        RX_DATA: begin
+          // Sample at middle of each data bit
+          if (baud_counter == (BAUD_COUNT / 2) - 1) begin
+            rx_shift <= {rx_sync2, rx_shift[7:1]};
+            baud_counter <= 0;
+            if (bit_index == 7) begin
+              state <= RX_STOP;
+            end else begin
+              bit_index <= bit_index + 1;
+            end
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        RX_STOP: begin
+          if (baud_counter == BAUD_COUNT - 1) begin
+            if (rx_sync2) begin  // Valid stop bit
+              rx_byte  <= rx_shift;
+              rx_valid <= 1'b1;
+            end else begin
+              error_flag <= 1'b1;  // Framing error
+            end
+            state <= IDLE;
+          end else begin
+            baud_counter <= baud_counter + 1;
+          end
+        end
+
+        CRC_CALC: begin
+          // CRC-16/IBM calculation
+          crc_reg <= {crc_reg[14:0], 1'b0} ^ 
+                     ((tx_byte[bit_index] ^ crc_reg[15]) ? 16'hA001 : 16'h0000);
+          
+          if (bit_index == 7) begin
+            crc_out <= crc_reg;
+            state   <= IDLE;
+          end else begin
+            bit_index <= bit_index + 1;
+          end
+        end
+
+        default: state <= IDLE;
+      endcase
     end
-  
-  for (i = 0; i < PORTS_OUT; i = i + 1)
-    begin : outputs
-      wire [XBAR_OPERAND_CONF_SIZE - 1:0] operand = conf[LUTS * STRIDE + XBAR_OPERAND_CONF_SIZE * i +: XBAR_OPERAND_CONF_SIZE];
-      assign ports_out[i] = xbar[operand];
-    end
-
-endmodule
-
-module ConfMemory #(
-  parameter SIZE = 8
-) (
-  input clock,
-  input rst_n,
-  input prog_data,
-  input prog_enable,
-  output [SIZE - 1 : 0] conf
-);
-
-  reg [SIZE - 1 : 0] mem;
-
-  always @(posedge clock)
-    if (!rst_n)
-      mem <= 0;
-    else
-      if (prog_enable)
-        mem <= {mem[SIZE - 2 : 0], prog_data};
-
-  assign conf = mem;
-
-endmodule
-
-module tt_um_fpga_can_lehmann (
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
-);
-
-  // All output pins must be assigned. If not used, assign to 0.
-  assign uio_out = 0;
-  assign uio_oe  = 0;
-
-  localparam IN_PORTS_PER_POOL = 8;
-  localparam OUT_PORTS_PER_POOL = 4;
-  localparam LUTS_PER_POOL = 8;
-  localparam N = 2;
-  localparam XBAR_OPERAND_CONF_SIZE = $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL);
-  localparam CONF_SIZE =
-    (2 ** N + 1 + N * $clog2(IN_PORTS_PER_POOL + LUTS_PER_POOL)) * LUTS_PER_POOL +
-    XBAR_OPERAND_CONF_SIZE * OUT_PORTS_PER_POOL;
-
-  wire [CONF_SIZE - 1 : 0] conf;
-
-  ConfMemory #(
-    .SIZE(CONF_SIZE)
-  ) conf_memory (
-    .clock(clk),
-    .rst_n(rst_n),
-    .prog_data(ui_in[0]),
-    .prog_enable(ui_in[1]),
-    .conf(conf)
-  );
-
-  Pool #(
-    .PORTS_IN(IN_PORTS_PER_POOL),
-    .PORTS_OUT(OUT_PORTS_PER_POOL),
-    .LUTS(LUTS_PER_POOL),
-    .N(N)
-  ) pool (
-    .clock(clk),
-    .rst_n(rst_n),
-    .ports_in(uio_in),
-    .ports_out(uo_out[3:0]),
-    .virtual_reset(ui_in[2] | ui_in[1]),
-    .conf(conf)
-  );
-
-  assign uo_out[7:4] = 0;
-
-  // List all unused inputs to prevent warnings
-  wire _unused = &{ena, clk, rst_n, ui_in[7:3], 1'b0};
+  end
 
 endmodule
